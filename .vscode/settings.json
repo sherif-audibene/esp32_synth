@@ -1,0 +1,14 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPath": "/Users/sherifhamad/esp/esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "idf.port": "/dev/tty.wchusbserial56E10090691",
+    "idf.toolsPath": "/Users/sherifhamad/.espressif",
+    "idf.flashType": "UART",
+    "files.associations": {
+        "tinyusb.h": "c",
+        "task.h": "c"
+    }
+}
