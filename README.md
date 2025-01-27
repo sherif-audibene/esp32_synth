@@ -1,69 +1,154 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
+# ESP32 MIDI Synthesizer
 
-# Blink Example
+## Overview
+This project implements a USB MIDI synthesizer using an ESP32 microcontroller. It features polyphonic sound synthesis, ADSR envelope control, and reverb effects, all controlled via USB MIDI input.
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+## Features
+- USB MIDI device support
+- Polyphonic synthesis (up to 16 simultaneous notes)
+- ADSR envelope control
+- Multi-waveform synthesis (sine, square, triangle, sawtooth)
+- Built-in reverb effect
+- I2S audio output
+- Note priority system with note memory
 
-This example demonstrates how to blink a LED by using the GPIO driver or using the [led_strip](https://components.espressif.com/component/espressif/led_strip) library if the LED is addressable e.g. [WS2812](https://cdn-shop.adafruit.com/datasheets/WS2812B.pdf). The `led_strip` library is installed via [component manager](main/idf_component.yml).
+## Hardware Requirements
+- ESP32-S2 or ESP32-S3 development board (with USB support)
+- I2S DAC or I2S amplifier
+- Speaker/audio output
 
-## How to Use Example
+## Pin Configuration
+c
+#define I2S_BCK_PIN (15) // I2S bit clock
+#define I2S_LRCK_PIN (16) // I2S word select
+#define I2S_DATA_PIN (17) // I2S data out
 
-Before project configuration and build, be sure to set the correct chip target using `idf.py set-target <chip_name>`.
+## Software Architecture
 
-### Hardware Required
+### 1. MIDI Processing
+The system processes incoming MIDI messages through the TinyUSB stack. Key components:
+- Note-On/Off handling
+- Velocity sensitivity
+- Note priority system with stack management
 
-* A development board with normal LED or addressable LED on-board (e.g., ESP32-S3-DevKitC, ESP32-C6-DevKitC etc.)
-* A USB cable for Power supply and programming
+### 2. Sound Generation
+Multiple synthesis methods are implemented:
 
-See [Development Boards](https://www.espressif.com/en/products/devkits) for more information about it.
+#### Waveform Generators:
+- Sine wave with noise
+- Square wave
+- Triangle wave
+- Sawtooth wave
 
-### Configure the Project
+### 3. ADSR Envelope
+Implements a professional-grade ADSR (Attack, Decay, Sustain, Release) envelope:
+- Configurable attack, decay, sustain, and release times
+- Smooth transitions between envelope stages
+- State management
 
-Open the project configuration menu (`idf.py menuconfig`).
+### 4. Audio Effects
+#### Reverb
+- Multi-tap delay implementation
+- Configurable decay and mix parameters
+- Real-time processing
 
-In the `Example Configuration` menu:
+### 5. Wavetable Synthesis
+- Pre-computed sine table for efficient waveform generation
+- Linear interpolation for smooth frequency transitions
+- Mixed waveform generation with three simultaneous frequencies
+- Amplitude scaling and normalization
 
-* Select the LED type in the `Blink LED type` option.
-  * Use `GPIO` for regular LED
-  * Use `LED strip` for addressable LED
-* If the LED type is `LED strip`, select the backend peripheral
-  * `RMT` is only available for ESP targets with RMT peripheral supported
-  * `SPI` is available for all ESP targets
-* Set the GPIO number used for the signal in the `Blink GPIO number` option.
-* Set the blinking period in the `Blink period in ms` option.
+## Setup and Configuration
 
-### Build and Flash
+### 1. TinyUSB Configuration
+The device is configured as a USB MIDI device with customizable descriptors.
 
-Run `idf.py -p PORT flash monitor` to build, flash and monitor the project.
+### 2. Audio Configuration
+Default audio settings:
 
-(To exit the serial monitor, type ``Ctrl-]``.)
-
-See the [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html) for full steps to configure and use ESP-IDF to build projects.
-
-## Example Output
-
-As you run the example, you will see the LED blinking, according to the previously defined period. For the addressable LED, you can also change the LED color by setting the `led_strip_set_pixel(led_strip, 0, 16, 16, 16);` (LED Strip, Pixel Number, Red, Green, Blue) with values from 0 to 255 in the [source file](main/blink_example_main.c).
-
-```text
-I (315) example: Example configured to blink addressable LED!
-I (325) example: Turning the LED OFF!
-I (1325) example: Turning the LED ON!
-I (2325) example: Turning the LED OFF!
-I (3325) example: Turning the LED ON!
-I (4325) example: Turning the LED OFF!
-I (5325) example: Turning the LED ON!
-I (6325) example: Turning the LED OFF!
-I (7325) example: Turning the LED ON!
-I (8325) example: Turning the LED OFF!
+```c
+#define SAMPLE_RATE (44100)
+#define BUFFER_SIZE (1024)
+#define REVERB_BUFFER_SIZE (SAMPLE_RATE)  // 1 second delay buffer
 ```
 
-Note: The color order could be different according to the LED model.
+### 3. ADSR Default Settings
+```c
+env->attack_time = 0.1f;     // 100ms attack
+env->decay_time = 0.2f;      // 200ms decay
+env->sustain_level = 0.7f;   // 70% sustain
+env->release_time = 0.3f;    // 300ms release
+```
 
-The pixel number indicates the pixel position in the LED strip. For a single LED, use 0.
+### 4. Task Configuration
+```c
+xTaskCreatePinnedToCore(
+    audio_processing_task,
+    "audio_task",
+    4096,           // Stack size
+    params,         // Task parameters
+    5,              // Priority
+    &audio_task_handle,
+    1               // Core ID (runs on core 1)
+);
+```
+
+### 5. USB MIDI Configuration
+- Configurable USB descriptors for both Full Speed and High Speed modes
+- Custom string descriptors for device identification
+- 64-byte (FS) or 512-byte (HS) endpoint sizes
+- Automatic USB driver installation with error checking
+
+## Building and Flashing
+
+1. Install ESP-IDF and set up the development environment
+2. Clone the repository
+3. Configure the project:
+```bash
+idf.py menuconfig
+```
+
+4. Build and flash:
+```bash
+idf.py -p [PORT] flash monitor
+```
+
+## Performance Considerations
+
+1. **Memory Usage**
+   - Uses static allocation for critical audio buffers
+   - Implements efficient note stack management
+   - Reverb buffer sized according to available memory
+
+2. **CPU Usage**
+   - Audio processing runs on a dedicated core
+   - Efficient wavetable synthesis implementation
+   - Optimized I2S output handling
+
+## Contributing
+Contributions are welcome! Please follow these steps:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+- TinyUSB library for USB MIDI implementation
+- ESP-IDF framework
+- Contributors and testers
 
 ## Troubleshooting
+Common issues and solutions:
+1. No USB MIDI detection
+   - Check USB cable connection
+   - Verify USB descriptor configuration
+2. Audio distortion
+   - Adjust buffer sizes
+   - Check I2S configuration
+3. High latency
+   - Optimize buffer sizes
+   - Check task priorities
 
-* If the LED isn't blinking, check the GPIO or the LED type selection in the `Example Configuration` menu.
-
-For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.
+For more detailed information, please refer to the source code documentation and comments.
