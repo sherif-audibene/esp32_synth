@@ -12,13 +12,13 @@
 
 // First, define the ADSR structure type before any function prototypes
 typedef struct {
-    float attack_time;    // Time in seconds for attack phase
-    float decay_time;     // Time in seconds for decay phase
-    float sustain_level;  // Sustain level (0.0 to 1.0)
-    float release_time;   // Time in seconds for release phase
-    float current_level;  // Current envelope level
-    float target_level;   // Target level for current phase
-    float rate;          // Current rate of change
+    int attack_samples;     // Samples for attack phase
+    int decay_samples;      // Samples for decay phase
+    float sustain_level;    // Sustain level (0.0 to 1.0)
+    int release_samples;    // Samples for release phase
+    float current_level;    // Current envelope level
+    float target_level;     // Target level for current phase
+    float rate;            // Rate of change per sample
     enum {
         IDLE,
         ATTACK,
@@ -26,7 +26,7 @@ typedef struct {
         SUSTAIN,
         RELEASE
     } state;
-    uint64_t phase_start_time;  // Start time of current phase in microseconds
+    int samples_processed;  // Counter for samples in current phase
 } adsr_envelope_t;
 
 // Add after the ADSR structure
@@ -238,7 +238,7 @@ static void midi_task_read_example(void *arg)
                             } else {
                                 params->envelope.state = ATTACK;
                             }
-                            params->envelope.phase_start_time = esp_timer_get_time();
+                            params->envelope.samples_processed = 0;
                             note_playing = true;
                             
                         } else {
@@ -280,7 +280,7 @@ static void handle_note_off(uint8_t note) {
         // No more notes pressed, start release
         note_playing = false;
         params->envelope.state = RELEASE;
-        params->envelope.phase_start_time = esp_timer_get_time();
+        params->envelope.samples_processed = 0;
     }
 }
 
@@ -396,40 +396,52 @@ void send_i2s_data(int16_t *mono_buffer, int buffer_size) {
                      &bytes_written, portMAX_DELAY);
 }
 
-// Update the ADSR initialization with better values
+// Update ADSR initialization
 void init_adsr(adsr_envelope_t *env) {
-    env->attack_time = 0.1f;     // 100ms attack
-    env->decay_time = 0.2f;      // 200ms decay
-    env->sustain_level = 0.7f;   // 70% sustain
-    env->release_time = 0.3f;    // 300ms release
+    // Convert time-based parameters to sample counts
+    env->attack_samples = (int)(0.1f * SAMPLE_RATE);  // 100ms attack
+    env->decay_samples = (int)(0.2f * SAMPLE_RATE);   // 200ms decay
+    env->sustain_level = 0.7f;                        // 70% sustain
+    env->release_samples = (int)(0.3f * SAMPLE_RATE); // 300ms release
     env->current_level = 0.0f;
     env->target_level = 0.0f;
     env->rate = 0.0f;
     env->state = IDLE;
-    env->phase_start_time = 0;
+    env->samples_processed = 0;
 }
 
-// Fix the ADSR processing function
+// Update ADSR processing function
 float process_adsr(adsr_envelope_t *env, bool note_on) {
-    uint64_t current_time = esp_timer_get_time();
-    float elapsed_time = (current_time - env->phase_start_time) / 1000000.0f;
-
     switch (env->state) {
         case ATTACK:
-            // Start attack from current level
-            env->current_level += (1.0f - env->current_level) * (elapsed_time / env->attack_time);
-            if (elapsed_time >= env->attack_time) {
-                env->current_level = 1.0f;
+            if (env->samples_processed == 0) {
+                env->target_level = 1.0f;
+                env->rate = (env->target_level - env->current_level) / env->attack_samples;
+            }
+            
+            env->current_level += env->rate;
+            env->samples_processed++;
+            
+            if (env->samples_processed >= env->attack_samples) {
+                env->current_level = env->target_level;
                 env->state = DECAY;
-                env->phase_start_time = current_time;
+                env->samples_processed = 0;
             }
             break;
 
         case DECAY:
-            env->current_level = 1.0f - ((1.0f - env->sustain_level) * (elapsed_time / env->decay_time));
-            if (elapsed_time >= env->decay_time) {
+            if (env->samples_processed == 0) {
+                env->target_level = env->sustain_level;
+                env->rate = (env->target_level - env->current_level) / env->decay_samples;
+            }
+            
+            env->current_level += env->rate;
+            env->samples_processed++;
+            
+            if (env->samples_processed >= env->decay_samples) {
                 env->current_level = env->sustain_level;
                 env->state = SUSTAIN;
+                env->samples_processed = 0;
             }
             break;
 
@@ -438,11 +450,18 @@ float process_adsr(adsr_envelope_t *env, bool note_on) {
             break;
 
         case RELEASE:
-            // Start release from current level
-            env->current_level *= (1.0f - (elapsed_time / env->release_time));
-            if (elapsed_time >= env->release_time || env->current_level <= 0.001f) {
+            if (env->samples_processed == 0) {
+                env->target_level = 0.0f;
+                env->rate = (env->target_level - env->current_level) / env->release_samples;
+            }
+            
+            env->current_level += env->rate;
+            env->samples_processed++;
+            
+            if (env->samples_processed >= env->release_samples || env->current_level <= 0.001f) {
                 env->current_level = 0.0f;
                 env->state = IDLE;
+                env->samples_processed = 0;
             }
             break;
 
