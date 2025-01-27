@@ -463,24 +463,23 @@ void process_reverb(reverb_t *rev, float *input, int buffer_size) {
     for (int i = 0; i < buffer_size; i++) {
         float output = 0.0f;
         
-        // Store current input in delay buffer
-        rev->delay_buffer[rev->write_pos] = input[i];
+        // Write input to delay buffer with feedback
+        rev->delay_buffer[rev->write_pos] = input[i] + 
+            (rev->delay_buffer[rev->write_pos] * rev->decay * 0.5f);
         
-        // Read from multiple delay taps
+        // Read from multiple delay taps with increased amplitude
         for (int tap = 0; tap < NUM_DELAYS; tap++) {
-            int delay_samples = (rev->buffer_size / NUM_DELAYS) * (tap + 1);
+            int delay_samples = (rev->buffer_size / (NUM_DELAYS + 1)) * (tap + 1);
             int read_pos = rev->write_pos - delay_samples;
             if (read_pos < 0) read_pos += rev->buffer_size;
             
-            // Add delayed signal with decay
-            output += rev->delay_buffer[read_pos] * rev->decay;
+            // Increase the tap amplitude
+            float tap_amp = 1.0f - (tap / (float)NUM_DELAYS);
+            output += rev->delay_buffer[read_pos] * rev->decay * tap_amp;
         }
         
-        // Add feedback
-        rev->delay_buffer[rev->write_pos] += output * 0.5f;
-        
-        // Mix dry and wet signals
-        input[i] = input[i] * (1.0f - rev->mix) + output * rev->mix;
+        // Mix dry and wet signals with increased wet level
+        input[i] = (input[i] * (1.0f - rev->mix)) + (output * rev->mix * 2.0f);
         
         // Update write position
         rev->write_pos = (rev->write_pos + 1) % rev->buffer_size;
@@ -586,12 +585,12 @@ void app_main(void)
     params->playing = &note_playing;
     init_adsr(&params->envelope);
     
-    // Initialize reverb with safer values
+    // Initialize reverb with much lighter settings
     params->reverb.delay_buffer = (float*)calloc(REVERB_BUFFER_SIZE, sizeof(float));
     params->reverb.buffer_size = REVERB_BUFFER_SIZE;
     params->reverb.write_pos = 0;
-    params->reverb.decay = 0.7f;    // Reduced decay
-    params->reverb.mix = 0.3f;      // Reduced mix
+    params->reverb.decay = 0.3f;    // Significantly reduced decay
+    params->reverb.mix = 0.15f;     // Significantly reduced wet/dry mix
     
     // Create audio task
     xTaskCreatePinnedToCore(
