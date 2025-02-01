@@ -399,9 +399,9 @@ void send_i2s_data(int16_t *mono_buffer, int buffer_size) {
 // Update ADSR initialization
 void init_adsr(adsr_envelope_t *env) {
     // Convert time-based parameters to sample counts
-    env->attack_samples = (int)(0.1f * SAMPLE_RATE);  // 100ms attack
+    env->attack_samples = (int)(0.05f * SAMPLE_RATE);  // 100ms attack
     env->decay_samples = (int)(0.2f * SAMPLE_RATE);   // 200ms decay
-    env->sustain_level = 0.7f;                        // 70% sustain
+    env->sustain_level = 0.3f;                        // 70% sustain
     env->release_samples = (int)(0.3f * SAMPLE_RATE); // 300ms release
     env->current_level = 0.0f;
     env->target_level = 0.0f;
@@ -540,7 +540,13 @@ void generate_mixed_sine_with_noise(int16_t *buffer, int buffer_size, float freq
             float sine2 = (sine_table[index2] * (1.0f - frac2) + sine_table[next_index2] * frac2) / 32768.0f;
             float sine3 = (sine_table[index3] * (1.0f - frac3) + sine_table[next_index3] * frac3) / 32768.0f;
             
-            float mixed_signal = (sine1 + 0.5f * sine2 + 0.3f * sine3) * envelope_level;
+            // Add detuned versions of each sine wave (slightly offset frequencies)
+            float detune_amount = 0.2f; // Small frequency offset for detuning
+            float sine1_detuned = (sine1 + sine1 * (1.0f + detune_amount)) * 0.5f;
+            float sine2_detuned = (sine2 + sine2 * (1.0f + detune_amount)) * 0.5f; 
+            float sine3_detuned = (sine3 + sine3 * (1.0f + detune_amount)) * 0.5f;
+            
+            float mixed_signal = (sine1_detuned + 0.5f * sine2_detuned + 0.3f * sine3_detuned) * envelope_level;
             float_buffer[i] = mixed_signal * 0.5f;
             
             phase1 += phase_increment1;
