@@ -8,7 +8,7 @@
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
 #include <math.h>
-#include "wavetable.h"
+#include "wavetable_manager.h"
 
 // First, define the ADSR structure type before any function prototypes
 typedef struct {
@@ -214,8 +214,8 @@ static void midi_task_read_example(void *arg)
                 switch (status) {
                     case NOTE_ON:
                         if (velocity > 0) {
-                            ESP_LOGI(TAG, "Note ON - Channel: %d, Note: %d, Velocity: %d", 
-                                    channel + 1, note, velocity);
+                            //ESP_LOGI(TAG, "Note ON - Channel: %d, Note: %d, Velocity: %d", 
+                            //        channel + 1, note, velocity);
                             
                             // Add note to stack
                             push_note(note);
@@ -249,10 +249,20 @@ static void midi_task_read_example(void *arg)
                         break;
                         
                     case NOTE_OFF:
-                        ESP_LOGI(TAG, "Note OFF - Channel: %d, Note: %d, Velocity: %d", 
-                                channel + 1, note, velocity);
+                        //ESP_LOGI(TAG, "Note OFF - Channel: %d, Note: %d, Velocity: %d", 
+                        //        channel + 1, note, velocity);
                         remove_note(note);
                         handle_note_off(note);
+                        break;
+
+                    case PROGRAM_CHANGE:
+                        ESP_LOGI(TAG, "Program Change - Channel: %d, Program: %d", 
+                                 channel + 1, note);
+                        if (note < WAVE_COUNT) {
+                            set_wavetable_type((wavetable_type_t)note);
+                            ESP_LOGI(TAG, "Switched to wavetable: %s", 
+                                     get_current_wavetable()->name);
+                        }
                         break;
 
                     default:
@@ -508,8 +518,8 @@ void process_reverb(reverb_t *rev, float *input, int buffer_size) {
 // Update the generate_mixed_sine_with_noise function
 void generate_mixed_sine_with_noise(int16_t *buffer, int buffer_size, float freq1, float freq2, float freq3, adsr_envelope_t *env) {
     float float_buffer[buffer_size];
+    const wavetable_t* current_wavetable = get_current_wavetable();
     
-    // If no note is playing and envelope is completely silent
     if (!*params->playing && env->state == IDLE && env->current_level < 0.001f) {
         memset(float_buffer, 0, buffer_size * sizeof(float));
     } else {
@@ -536,19 +546,23 @@ void generate_mixed_sine_with_noise(int16_t *buffer, int buffer_size, float freq
             float frac2 = phase2 - index2;
             float frac3 = phase3 - index3;
             
-            float sine1 = (sine_table[index1] * (1.0f - frac1) + sine_table[next_index1] * frac1) / 32768.0f;
-            float sine2 = (sine_table[index2] * (1.0f - frac2) + sine_table[next_index2] * frac2) / 32768.0f;
-            float sine3 = (sine_table[index3] * (1.0f - frac3) + sine_table[next_index3] * frac3) / 32768.0f;
+            float wave1 = (current_wavetable->table[index1] * (1.0f - frac1) + 
+                          current_wavetable->table[next_index1] * frac1) / 32768.0f;
+            float wave2 = (current_wavetable->table[index2] * (1.0f - frac2) + 
+                          current_wavetable->table[next_index2] * frac2) / 32768.0f;
+            float wave3 = (current_wavetable->table[index3] * (1.0f - frac3) + 
+                          current_wavetable->table[next_index3] * frac3) / 32768.0f;
             
-            // Add detuned versions of each sine wave (slightly offset frequencies)
-            float detune_amount = 0.2f; // Small frequency offset for detuning
-            float sine1_detuned = (sine1 + sine1 * (1.0f + detune_amount)) * 0.5f;
-            float sine2_detuned = (sine2 + sine2 * (1.0f + detune_amount)) * 0.5f; 
-            float sine3_detuned = (sine3 + sine3 * (1.0f + detune_amount)) * 0.5f;
+            // Rest of the function remains the same, just replace sine1, sine2, sine3 with wave1, wave2, wave3
+            float detune_amount = 0.2f;
+            float wave1_detuned = (wave1 + wave1 * (1.0f + detune_amount)) * 0.5f;
+            float wave2_detuned = (wave2 + wave2 * (1.0f + detune_amount)) * 0.5f;
+            float wave3_detuned = (wave3 + wave3 * (1.0f + detune_amount)) * 0.5f;
             
-            float mixed_signal = (sine1_detuned + 0.5f * sine2_detuned + 0.3f * sine3_detuned) * envelope_level;
+            float mixed_signal = (wave1_detuned + 0.5f * wave2_detuned + 0.3f * wave3_detuned) * envelope_level;
             float_buffer[i] = mixed_signal * 0.5f;
             
+            // Update phases
             phase1 += phase_increment1;
             phase2 += phase_increment2;
             phase3 += phase_increment3;
@@ -559,10 +573,9 @@ void generate_mixed_sine_with_noise(int16_t *buffer, int buffer_size, float freq
         }
     }
     
-    // Always process reverb to maintain the tail
+    // Process reverb and convert to int16_t as before
     process_reverb(&params->reverb, float_buffer, buffer_size);
     
-    // Convert back to int16_t
     for (int i = 0; i < buffer_size; i++) {
         float sample = float_buffer[i] * INT16_MAX;
         if (sample > INT16_MAX) sample = INT16_MAX;

@@ -1,9 +1,9 @@
-#ifndef WAVETABLE_H
-#define WAVETABLE_H
+#ifndef WAVETABLE_SAWTOOTH_H
+#define WAVETABLE_SAWTOOTH_H
 
 #define WAVETABLE_SIZE 4096
 
-const int16_t sine_table[WAVETABLE_SIZE] = {
+const int16_t sawtooth_table[WAVETABLE_SIZE] = {
     -32767, -32735, -32703, -32671, -32639, -32607, -32575, -32543, 
     -32511, -32479, -32447, -32415, -32383, -32351, -32319, -32287, 
     -32255, -32223, -32191, -32159, -32127, -32095, -32063, -32031, 
